@@ -1,0 +1,6 @@
+__pycache__/
+.pytest_cache/
+.venv/
+artifacts/
+data/*.csv
+data/*.zip
