@@ -52,7 +52,7 @@ def test_fraude_puntua_mas_que_normal(client):
     assert p_fraud["fraud_probability"] > p_norm["fraud_probability"]
     assert p_fraud["decision"] in (REVIEW, BLOCK)
     assert p_norm["decision"] == APPROVE
-    assert any("vacia" in r for r in p_fraud["reasons"])
+    assert any("todo el saldo" in r for r in p_fraud["reasons"])
 
 
 def test_tipo_sin_riesgo_se_aprueba(client):

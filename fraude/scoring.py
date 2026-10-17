@@ -26,13 +26,14 @@ def decide(proba: float, review_t: float, block_t: float) -> str:
 
 
 def explain(feat: pd.Series) -> list[str]:
+    """Motivos legibles, solo con informacion disponible antes de autorizar."""
     reasons = []
-    if feat["empties_account"]:
-        reasons.append("La operacion vacia por completo la cuenta de origen")
-    if feat["dest_zero_balances"]:
-        reasons.append("La cuenta destino no refleja el dinero recibido (saldo 0 antes y despues)")
-    if abs(feat["error_orig"]) > 1:
-        reasons.append("El saldo de origen no cuadra con el importe")
+    if feat["takes_all_balance"]:
+        reasons.append("La operacion se lleva todo el saldo de la cuenta de origen")
+    elif feat["amount_to_balance"] >= 0.8 and not feat["orig_zero_balance"]:
+        reasons.append("El importe es casi todo el saldo disponible")
+    if feat["dest_new_account"] and feat["is_transfer"]:
+        reasons.append("Transferencia a una cuenta destino sin saldo previo")
     if feat["amount"] >= 200_000:
         reasons.append("Importe alto (>= 200.000)")
     if feat["hour"] < 6:
@@ -60,7 +61,7 @@ class Scorer:
         df = pd.DataFrame(transactions)
         feats = build_features(df)
         risky = df["type"].isin(self.metadata["risky_types"]).to_numpy()
-        proba = self.model.predict_proba(feats)[:, 1]
+        proba = self.model.predict_proba(feats[self.metadata["features"]])[:, 1]
 
         results = []
         for i in range(len(df)):

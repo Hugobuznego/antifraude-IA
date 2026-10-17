@@ -3,6 +3,7 @@
 Uso:
     python -m fraude.train --data data/PS_20174392719_1491204439457_log.csv
     python -m fraude.train --synthetic 200000      # sin descargar nada
+    python -m fraude.train --data ... --features completo --out artifacts_completo
 
 Decisiones clave (las que hay que saber contar en una entrevista):
 1. Solo se modelan TRANSFER y CASH_OUT: en los datos no hay fraude en el resto.
@@ -12,6 +13,8 @@ Decisiones clave (las que hay que saber contar en una entrevista):
    que dice "nunca es fraude" tiene un 99% de accuracy y no sirve para nada.
 4. Los umbrales se eligen por COSTE en euros sobre validacion, respetando la capacidad
    del equipo de revision, y se reportan en test.
+5. Por defecto solo se usan variables disponibles ANTES de autorizar la operacion
+   (ver fraude/features.py). Usar los saldos posteriores es una fuga de informacion.
 """
 
 import argparse
@@ -29,7 +32,7 @@ from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
 from fraude.data import RISKY_TYPES, generate_synthetic, load_paysim
-from fraude.features import FEATURES, build_features
+from fraude.features import DEFAULT_FEATURE_SET, FEATURE_SETS, build_features
 
 # Supuestos de coste (editables, y hay que explicarlos en el README)
 REVIEW_COST = 5.0            # coste de que un analista revise una alerta (EUR)
@@ -109,17 +112,21 @@ def train(
     out_dir: str | Path = "artifacts",
     source: str = "unknown",
     max_review_rate: float | None = MAX_REVIEW_RATE,
+    feature_set: str = DEFAULT_FEATURE_SET,
 ) -> dict:
     """`max_review_rate`: fraccion maxima de transacciones que el equipo puede revisar
     (None = sin limite)."""
+    if feature_set not in FEATURE_SETS:
+        raise ValueError(f"feature_set debe ser uno de {list(FEATURE_SETS)}")
+    cols = FEATURE_SETS[feature_set]
     df = df[df["type"].astype(str).isin(RISKY_TYPES)].copy()
     train_df, val_df, test_df = temporal_split(df)
     if train_df["isFraud"].sum() < 10:
         raise ValueError("Muy pocos fraudes en train para entrenar algo con sentido")
 
-    X_tr, y_tr = build_features(train_df), train_df["isFraud"].to_numpy()
-    X_va, y_va = build_features(val_df), val_df["isFraud"].to_numpy()
-    X_te, y_te = build_features(test_df), test_df["isFraud"].to_numpy()
+    X_tr, y_tr = build_features(train_df)[cols], train_df["isFraud"].to_numpy()
+    X_va, y_va = build_features(val_df)[cols], val_df["isFraud"].to_numpy()
+    X_te, y_te = build_features(test_df)[cols], test_df["isFraud"].to_numpy()
 
     model = HistGradientBoostingClassifier(
         max_iter=300, learning_rate=0.08, max_leaf_nodes=31,
@@ -155,7 +162,8 @@ def train(
     metadata = {
         "trained_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "data_source": source,
-        "features": FEATURES,
+        "feature_set": feature_set,
+        "features": cols,
         "risky_types": RISKY_TYPES,
         "thresholds": {"review": round(review_t, 4), "block": round(block_t, 4)},
         "assumptions": {
@@ -182,6 +190,8 @@ def main():
     parser.add_argument("--nrows", type=int, default=None, help="Leer solo N filas del CSV")
     parser.add_argument("--max-review-rate", type=float, default=MAX_REVIEW_RATE,
                         help="Fraccion maxima de transacciones a revisar (capacidad del equipo). 0 = sin limite")
+    parser.add_argument("--features", choices=list(FEATURE_SETS), default=DEFAULT_FEATURE_SET,
+                        help="realista = solo info previa a la operacion; completo = incluye saldos posteriores (fuga)")
     parser.add_argument("--out", default="artifacts")
     args = parser.parse_args()
 
@@ -190,8 +200,10 @@ def main():
     else:
         df, source = generate_synthetic(args.synthetic), f"synthetic:{args.synthetic}"
 
-    meta = train(df, args.out, source, max_review_rate=args.max_review_rate or None)
-    print(json.dumps({"thresholds": meta["thresholds"], **meta["test_metrics"]}, indent=2))
+    meta = train(df, args.out, source, max_review_rate=args.max_review_rate or None,
+                 feature_set=args.features)
+    print(json.dumps({"feature_set": meta["feature_set"], "thresholds": meta["thresholds"],
+                      **meta["test_metrics"]}, indent=2))
 
 
 if __name__ == "__main__":

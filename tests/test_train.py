@@ -59,6 +59,8 @@ def test_entrenamiento_genera_artefactos(trained_dir):
     t = meta["thresholds"]
     assert 0 < t["review"] <= t["block"]
     assert meta["split_steps"]["train"][1] < meta["split_steps"]["test"][0]
+    assert meta["feature_set"] == "realista"
+    assert "newbalanceOrig" not in meta["features"]
 
 
 def test_modelo_supera_baselines(trained_dir):
@@ -69,6 +71,19 @@ def test_modelo_supera_baselines(trained_dir):
     assert m["pr_auc"] >= m["baseline_logreg_pr_auc"]
     assert m["recall_at_review"] > m["baseline_rule_recall"]
     assert m["cost_with_model"] < m["cost_without_model"]
+
+
+def test_entrena_set_completo(tmp_path, synthetic_df):
+    from fraude.train import train
+    meta = train(synthetic_df, tmp_path, feature_set="completo")
+    assert meta["feature_set"] == "completo"
+    assert "newbalanceDest" in meta["features"]
+
+
+def test_set_desconocido_falla(tmp_path, synthetic_df):
+    from fraude.train import train
+    with pytest.raises(ValueError):
+        train(synthetic_df, tmp_path, feature_set="inventado")
 
 
 def test_pocos_fraudes_falla(tmp_path):

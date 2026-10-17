@@ -1,7 +1,7 @@
 import pandas as pd
 
 from fraude.data import COLUMNS, RISKY_TYPES, generate_synthetic, load_paysim
-from fraude.features import FEATURES, build_features
+from fraude.features import ALL_FEATURES, FEATURE_SETS, POST_TRANSACTION, build_features
 
 
 def test_esquema_paysim(synthetic_df):
@@ -41,7 +41,7 @@ def test_load_paysim_columnas_faltantes(tmp_path):
 
 def test_features_sin_nulos(synthetic_df):
     X = build_features(synthetic_df)
-    assert list(X.columns) == FEATURES
+    assert list(X.columns) == ALL_FEATURES
     assert not X.isna().any().any()
 
 
@@ -52,6 +52,8 @@ def test_features_caso_tipico_fraude():
         "oldbalanceDest": 0.0, "newbalanceDest": 0.0,
     }])
     f = build_features(tx).iloc[0]
+    assert f["takes_all_balance"] == 1
+    assert f["dest_new_account"] == 1
     assert f["empties_account"] == 1
     assert f["dest_zero_balances"] == 1
     assert f["error_orig"] == 0
@@ -67,6 +69,19 @@ def test_features_transaccion_normal():
         "oldbalanceDest": 100.0, "newbalanceDest": 300.0,
     }])
     f = build_features(tx).iloc[0]
+    assert f["takes_all_balance"] == 0
     assert f["empties_account"] == 0
     assert f["dest_zero_balances"] == 0
     assert f["error_orig"] == 0 and f["error_dest"] == 0
+
+
+def test_set_realista_no_usa_saldos_posteriores(synthetic_df):
+    """Si cambio los saldos de DESPUES de la operacion, las variables realistas no se mueven.
+    Esto garantiza que el modelo por defecto no tiene fuga de informacion."""
+    muestra = synthetic_df.head(2000)
+    alterado = muestra.copy()
+    alterado["newbalanceOrig"] = 123456.0
+    alterado["newbalanceDest"] = 0.0
+    cols = FEATURE_SETS["realista"]
+    pd.testing.assert_frame_equal(build_features(muestra)[cols], build_features(alterado)[cols])
+    assert not set(cols) & set(POST_TRANSACTION)

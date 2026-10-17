@@ -75,7 +75,8 @@ def health(request: Request):
 @app.get("/model/info")
 def model_info(request: Request):
     meta = get_scorer(request).metadata
-    return {k: meta[k] for k in ("trained_at", "data_source", "thresholds", "assumptions", "test_metrics")}
+    keys = ("trained_at", "data_source", "feature_set", "thresholds", "assumptions", "test_metrics")
+    return {k: meta.get(k) for k in keys}
 
 
 @app.post("/score", response_model=ScoreResult)
