@@ -85,3 +85,10 @@ def test_set_realista_no_usa_saldos_posteriores(synthetic_df):
     cols = FEATURE_SETS["realista"]
     pd.testing.assert_frame_equal(build_features(muestra)[cols], build_features(alterado)[cols])
     assert not set(cols) & set(POST_TRANSACTION)
+
+
+def test_diagnostico_funciona(synthetic_df, capsys):
+    from fraude.diagnostico import diagnostico
+    diagnostico(synthetic_df)
+    out = capsys.readouterr().out
+    assert "Hipotesis 1" in out and "Hipotesis 2" in out

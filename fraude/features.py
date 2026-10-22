@@ -33,7 +33,12 @@ POST_TRANSACTION = [
     "empties_account", "dest_zero_balances",
 ]
 
+# Sin saldos de ningun tipo: solo importe, tipo y hora. Sirve para medir cuanto
+# del resultado depende del patron "vaciar la cuenta" del simulador.
+FEATURES_SIN_SALDOS = ["amount", "log_amount", "is_transfer", "hour"]
+
 FEATURE_SETS = {
+    "sin_saldos": FEATURES_SIN_SALDOS,
     "realista": FEATURES_REALISTA,
     "completo": FEATURES_REALISTA + POST_TRANSACTION,
 }

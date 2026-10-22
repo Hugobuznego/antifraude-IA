@@ -80,6 +80,12 @@ def test_entrena_set_completo(tmp_path, synthetic_df):
     assert "newbalanceDest" in meta["features"]
 
 
+def test_entrena_set_sin_saldos(tmp_path, synthetic_df):
+    from fraude.train import train
+    meta = train(synthetic_df, tmp_path, feature_set="sin_saldos")
+    assert not any("balance" in f.lower() for f in meta["features"])
+
+
 def test_set_desconocido_falla(tmp_path, synthetic_df):
     from fraude.train import train
     with pytest.raises(ValueError):
