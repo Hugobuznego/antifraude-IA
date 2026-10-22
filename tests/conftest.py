@@ -1,3 +1,9 @@
+import os
+
+# Los tests nunca usan la clave real ni cargan el CSV de 470 MB, aunque existan en tu PC
+os.environ["GEMINI_API_KEY"] = ""
+os.environ["HISTORY_DATA"] = "__no_existe__.csv"
+
 import pytest
 
 from fraude.data import generate_synthetic

@@ -1,13 +1,39 @@
 import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from agente.graph import build_agent, revisar
+from agente.llm import llm_desde_entorno
+from fraude.historial import Historial
 from fraude.scoring import Scorer
 
+
+def cargar_env(path: str = ".env") -> None:
+    """Lee un .env sencillo (CLAVE=valor). Asi la clave de Gemini no va en el codigo."""
+    f = Path(path)
+    if not f.exists():
+        return
+    for linea in f.read_text(encoding="utf-8").splitlines():
+        linea = linea.strip()
+        if linea and not linea.startswith("#") and "=" in linea:
+            clave, valor = linea.split("=", 1)
+            os.environ.setdefault(clave.strip(), valor.strip().strip('"').strip("'"))
+
+
+cargar_env()
 MODEL_DIR = os.getenv("MODEL_DIR", "artifacts")
+HISTORY_DATA = os.getenv("HISTORY_DATA", "data/PS_20174392719_1491204439457_log.csv")
+
+
+def montar_agente(app: FastAPI) -> None:
+    if app.state.scorer is None:
+        app.state.agente = None
+        return
+    app.state.agente = build_agent(app.state.scorer, app.state.historial, app.state.llm)
 
 
 @asynccontextmanager
@@ -17,6 +43,14 @@ async def lifespan(app: FastAPI):
         app.state.scorer = Scorer.load(MODEL_DIR)
     except FileNotFoundError:
         app.state.scorer = None
+    # El historial es opcional: si no esta el CSV, el agente lo indica en el informe
+    if Path(HISTORY_DATA).exists():
+        print(f"Cargando historial desde {HISTORY_DATA} (puede tardar un poco)...")
+        app.state.historial = Historial.desde_csv(HISTORY_DATA)
+    else:
+        app.state.historial = Historial(None)
+    app.state.llm = llm_desde_entorno()
+    montar_agente(app)
     yield
 
 
@@ -69,7 +103,13 @@ def get_scorer(request: Request) -> Scorer:
 
 @app.get("/health")
 def health(request: Request):
-    return {"status": "ok", "model_loaded": request.app.state.scorer is not None}
+    st = request.app.state
+    return {
+        "status": "ok",
+        "model_loaded": st.scorer is not None,
+        "history_loaded": st.historial.disponible,
+        "llm": st.llm.nombre if st.llm else None,
+    }
 
 
 @app.get("/model/info")
@@ -87,3 +127,21 @@ def score(tx: Transaction, request: Request):
 @app.post("/score/batch", response_model=list[ScoreResult])
 def score_batch(req: BatchRequest, request: Request):
     return get_scorer(request).score_many([t.model_dump() for t in req.transactions])
+
+
+class AgentReview(BaseModel):
+    recomendacion_final: Literal["APPROVE", "REVIEW", "BLOCK"]
+    decision_minima_politica: Literal["APPROVE", "REVIEW", "BLOCK"]
+    puntuacion: ScoreResult
+    historial_destino: dict
+    reglas: list[str]
+    informe: dict
+    fuente_informe: str
+    notas: list[str]
+
+
+@app.post("/agent/review", response_model=AgentReview)
+def agent_review(tx: Transaction, request: Request):
+    """El agente revisa la operacion y redacta un informe para el analista."""
+    get_scorer(request)
+    return revisar(request.app.state.agente, tx.model_dump())

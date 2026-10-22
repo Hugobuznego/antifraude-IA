@@ -4,3 +4,5 @@ __pycache__/
 artifacts/
 data/*.csv
 data/*.zip
+.env
+artifacts_*/

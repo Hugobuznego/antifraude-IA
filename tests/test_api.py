@@ -38,7 +38,7 @@ def test_decide():
 
 
 def test_health(client):
-    assert client.get("/health").json() == {"status": "ok", "model_loaded": True}
+    assert client.get("/health").json()["model_loaded"] is True
 
 
 def test_model_info(client):

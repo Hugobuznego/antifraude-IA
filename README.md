@@ -36,8 +36,13 @@ fraude/
   features.py   variables con hipótesis de negocio (sets "realista" y "completo")
   train.py      entrenamiento, umbrales por coste, evaluación
   scoring.py    puntuación + decisión + motivos legibles
+  historial.py  historial de cuentas destino
+  diagnostico.py  diagnóstico de artefactos del simulador
+agente/
+  graph.py      agente LangGraph (puntuar, historial, política, redactar, guardarraíl)
+  llm.py        conexión con Gemini, intercambiable
 app/main.py     API FastAPI
-tests/          32 tests (datos, variables, fuga, umbrales, entrenamiento, API)
+tests/          47 tests (datos, variables, fuga, umbrales, entrenamiento, API, agente)
 .github/        CI: tests + entrenamiento de prueba en cada push
 ```
 
@@ -82,6 +87,7 @@ Abre http://localhost:8000/docs. Ahí `POST /score` ya trae un ejemplo de transa
 | `GET /model/info` | Umbrales, supuestos y métricas de test |
 | `POST /score` | Puntúa una transacción |
 | `POST /score/batch` | Puntúa hasta 1000 transacciones |
+| `POST /agent/review` | El agente revisa la operación y redacta el informe para el analista |
 
 Ejemplo de respuesta:
 
@@ -148,10 +154,41 @@ A partir de la hora ~355 la actividad legítima cae a una cuarta parte pero el f
 
 **Conclusión:** PaySim sirve para construir y probar el sistema (API, umbrales por coste, tests), pero no para medir un modelo de fraude. Cualquier métrica sobre él refleja cómo se programó el simulador.
 
+## Agente para el analista (LangGraph + Gemini)
+
+Un modelo solo dice "probabilidad 0,82". El analista que recibe la alerta necesita contexto para decidir rápido. El agente se lo prepara:
+
+```
+START → puntuar → historial → política ─┬─ (algo que revisar) → redactar (Gemini) ─┬→ guardarraíl → END
+                                         └─ (operación limpia) → informe breve ─────┘
+```
+
+| Paso | Qué hace |
+|---|---|
+| puntuar | Probabilidad, decisión del modelo y motivos legibles |
+| historial | Qué ha recibido antes la cuenta destino y cuántos fraudes confirmados tiene (solo operaciones anteriores) |
+| política | Reglas de negocio deterministas que fijan la decisión **mínima**: cuenta destino con fraude previo → BLOCK; importe igual al saldo al céntimo → REVIEW; importes altos → cuatro ojos |
+| redactar | Gemini escribe el informe del caso: resumen, señales, qué comprobar y recomendación, en JSON validado con Pydantic |
+| guardarraíl | El LLM **nunca** puede recomendar algo menos estricto que la política. Si lo intenta, se corrige y queda anotado |
+
+Decisiones de diseño:
+- **El LLM redacta, no decide.** Las decisiones duras las ponen el modelo validado y las reglas, y la última palabra es del analista.
+- **Operaciones limpias no llaman al LLM**: ahorra cuota y latencia.
+- **Si no hay clave, se agota la cuota o el LLM responde mal**, el agente usa una plantilla y lo anota en `notas`. La API nunca se cae por el LLM.
+- **Proveedor intercambiable**: el agente solo necesita un objeto con `generar(prompt)`. Gemini está en `agente/llm.py`, y cambiar a otro LLM es una clase de 10 líneas.
+- **Tests sin clave ni internet**: usan un LLM falso que simula respuestas buenas, malas, inválidas y caídas de red.
+
+### Activar Gemini (gratis)
+
+1. Entra en https://aistudio.google.com/apikey con tu cuenta de Google y pulsa **Create API key**.
+2. Copia `.env.example` como `.env` y pega la clave. El `.env` está en `.gitignore` y no se sube a GitHub.
+3. Arranca la API y prueba `POST /agent/review` en http://localhost:8000/docs.
+
+Sin clave también funciona, pero el informe sale de una plantilla.
+
 ## Próximos pasos
 
 - [ ] EDA en notebook con los datos reales
 - [ ] Revisar posibles artefactos del simulador (p. ej. volumen de transacciones por hora en el periodo de test)
-- [ ] Agente LangGraph que ayuda al analista a resolver alertas
 - [ ] Dashboard en Power BI con alertas y KPIs
 - [ ] Explicabilidad con SHAP
