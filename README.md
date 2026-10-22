@@ -121,18 +121,32 @@ La solución es separar las variables en dos conjuntos (`fraude/features.py`):
 
 Hay un test (`test_set_realista_no_usa_saldos_posteriores`) que garantiza que el modelo por defecto no puede volver a usarlos.
 
-## Resultados
+## Resultados en PaySim (y por qué no bastan)
 
-> Pendiente: resultados del set realista con PaySim real.
+| Métrica (test) | Sin saldos | Realista | Completo (fuga) |
+|---|---|---|---|
+| PR-AUC | 0,40 | 0,9998 | 1,00 |
+| Recall en revisión | 45% | 99,8% | 100% |
+| % del importe defraudado detectado | 77% | 99,99% | 100% |
+| Alertas al día | 417 | 262 | 263 |
+| Regresión logística (PR-AUC) | 0,09 | 0,76 | 0,93 |
+| Regla actual `isFlaggedFraud` (recall) | 0,3% | 0,3% | 0,3% |
 
-| Métrica (test, PaySim) | Realista | Completo (fuga) |
+Quitar la fuga no bastó: el modelo realista seguía casi perfecto. `python -m fraude.diagnostico` encontró por qué:
+
+**1. El simulador escribe el fraude con una regla.** El 97,6% de los fraudes mueve *exactamente* el saldo de la cuenta origen, y ninguna operación legítima lo hace (0,00%). La regla de una línea `importe == saldo origen`, sin modelo, tiene un 100% de precisión y un 97,6% de recall.
+
+**2. El periodo de test no se parece al de entrenamiento.**
+
+| Periodo | Operaciones/hora | % fraude |
 |---|---|---|
-| PR-AUC | | 1,00 |
-| Recall en revisión | | 100% |
-| % del importe defraudado detectado | | 100% |
-| Alertas al día | | 263 |
-| Regla actual (recall) | | 0,3% |
-| Regresión logística (PR-AUC) | | 0,93 |
+| Train (h 1-281) | 5.953 | 0,19% |
+| Validación (h 282-354) | 7.466 | 0,14% |
+| Test (h 355-743) | 1.420 | 0,77% |
+
+A partir de la hora ~355 la actividad legítima cae a una cuarta parte pero el fraude sigue igual, así que el % de fraude en test se multiplica por 4. Incluso el modelo "sin saldos" se aprovecha de esto (la hora del día separa mejor cuando apenas hay clientes legítimos).
+
+**Conclusión:** PaySim sirve para construir y probar el sistema (API, umbrales por coste, tests), pero no para medir un modelo de fraude. Cualquier métrica sobre él refleja cómo se programó el simulador.
 
 ## Próximos pasos
 
